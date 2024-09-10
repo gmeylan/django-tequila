@@ -1,18 +1,20 @@
 """
-    (c) All rights reserved. ECOLE POLYTECHNIQUE FEDERALE DE LAUSANNE, Switzerland, VPSI, 2022
+(c) All rights reserved. ECOLE POLYTECHNIQUE FEDERALE DE LAUSANNE, Switzerland, VPSI, 2022
 """
+
 import logging
 import warnings
 
-from django.contrib.auth.backends import RemoteUserBackend
+from django.apps import apps
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.backends import RemoteUserBackend
+from django.db.utils import OperationalError
+
 from django_tequila.tequila_client import TequilaClient
 from django_tequila.tequila_client.config import EPFLConfig
-from django.conf import settings
-from django.db.utils import OperationalError
-from django.apps import apps
 
-logger = logging.getLogger('django_tequila.backend')
+logger = logging.getLogger("django_tequila.backend")
 User = get_user_model()
 
 
@@ -28,6 +30,7 @@ class TequilaBackend(RemoteUserBackend):
     this behavior by setting the ``create_unknown_user`` attribute to
     ``False``.
     """
+
     create_unknown_user = True
 
     """ Created user should be inactive by default ?"""
@@ -65,20 +68,21 @@ class TequilaBackend(RemoteUserBackend):
 
         if self.tequila_server_url:
             user_attributes = TequilaClient(
-                EPFLConfig(server_url=self.tequila_server_url)).get_attributes(
-                tequila_key, allowedrequesthosts, auth_check)
+                EPFLConfig(server_url=self.tequila_server_url)
+            ).get_attributes(tequila_key, allowedrequesthosts, auth_check)
         else:
             user_attributes = TequilaClient(EPFLConfig()).get_attributes(
-                tequila_key, allowedrequesthosts, auth_check)
+                tequila_key, allowedrequesthosts, auth_check
+            )
 
         # username has a tricky format, fix it
-        if user_attributes.get('username'):
-            u_name = user_attributes['username']
+        if user_attributes.get("username"):
+            u_name = user_attributes["username"]
             if u_name.find(","):
                 u_name = u_name.split(",")[0]
                 if u_name.find("@"):
                     u_name = u_name.split("@")[0]
-                user_attributes['username'] = u_name
+                user_attributes["username"] = u_name
 
         # Note that this could be accomplished in one try-except clause,
         # but instead we use get_or_create when creating unknown users since
@@ -89,7 +93,6 @@ class TequilaBackend(RemoteUserBackend):
             if created:
                 user = self.configure_user(user)
         else:
-
             user, created = self.get_user_from_db(user_attributes, create=False)
 
         if user:
@@ -109,43 +112,52 @@ class TequilaBackend(RemoteUserBackend):
         user = None
 
         # find the sciper first, as it is the only unique value from Tequila
-        tequila_sciper = user_attributes.get('uniqueid')
-        tequila_username = user_attributes.get('username')
+        tequila_sciper = user_attributes.get("uniqueid")
+        tequila_username = user_attributes.get("username")
 
         # current app is using a user profile ?
-        is_app_using_profile = hasattr(settings, 'AUTH_PROFILE_MODULE')
+        is_app_using_profile = hasattr(settings, "AUTH_PROFILE_MODULE")
 
         if is_app_using_profile:
-            user_profile_model = apps.get_model(*settings.AUTH_PROFILE_MODULE.split('.'))
+            user_profile_model = apps.get_model(
+                *settings.AUTH_PROFILE_MODULE.split(".")
+            )
 
             try:
-                user_profile = user_profile_model.objects.filter(sciper=tequila_sciper).latest('id')
+                user_profile = user_profile_model.objects.filter(
+                    sciper=tequila_sciper
+                ).latest("id")
                 user = user_profile.user
             except user_profile_model.DoesNotExist:
                 pass
             except User.DoesNotExist:
                 # recreate missing user and connect to his orphan profile
                 self.backup_user_with_same_username(tequila_username)
-                user = User.objects.create(username=tequila_username, id=user_profile.user_id)
+                user = User.objects.create(
+                    username=tequila_username, id=user_profile.user_id
+                )
                 return user, True
         else:
             # No profile, so think it as an AbstractUser with USERNAME_FIELD
             # Give de possibility to choose a custom value for the local username field
-            custom_username_field = getattr(settings,
-                                            'TEQUILA_CUSTOM_USERNAME_ATTRIBUTE',
-                                            'username')  # should be uniqueid if done right
-            if custom_username_field == 'username':
+            custom_username_field = getattr(
+                settings, "TEQUILA_CUSTOM_USERNAME_ATTRIBUTE", "username"
+            )  # should be uniqueid if done right
+            if custom_username_field == "username":
                 # Still using the non-recommended version ? Respect it, but add a warning
-                warnings.warn("""The field username has user identification is not 
-                              recommended and may be removed in futures versions""", DeprecationWarning)
+                warnings.warn(
+                    """The field username has user identification is not 
+                              recommended and may be removed in futures versions""",
+                    DeprecationWarning,
+                )
             tequila_user_identifier = user_attributes[custom_username_field]
 
             try:
-               user = User.objects.get(**{
-                   User.USERNAME_FIELD: tequila_user_identifier
-               })
+                user = User.objects.get(
+                    **{User.USERNAME_FIELD: tequila_user_identifier}
+                )
             except User.DoesNotExist:
-               pass
+                pass
 
         if user:
             # update the User.username, in case it has changed
@@ -169,7 +181,7 @@ class TequilaBackend(RemoteUserBackend):
         Reject users with is_active=False. Custom user models that don't have
         that attribute are allowed.
         """
-        is_active = getattr(user, 'is_active', None)
+        is_active = getattr(user, "is_active", None)
 
         return is_active or is_active is None
 
@@ -181,17 +193,19 @@ class TequilaBackend(RemoteUserBackend):
         try:
             # other_user is an another user with same username
             other_user = User.objects.get(username=username)
-            other_user.username = other_user.username + '-inactive-' + str(other_user.id)
+            other_user.username = (
+                other_user.username + "-inactive-" + str(other_user.id)
+            )
             other_user.save()
         except User.DoesNotExist:
             pass
 
     @staticmethod
     def _try_to_set_user_attributes(user, mapping, user_attributes):
-        """ As applications may have a different model without the needed fields,
-            be kind with forgiveness
-            mapping is the attribute_name in Django, user_attributes in Tequila
-            ex: (('sciper','uniqueid'), ...)
+        """As applications may have a different model without the needed fields,
+        be kind with forgiveness
+        mapping is the attribute_name in Django, user_attributes in Tequila
+        ex: (('sciper','uniqueid'), ...)
         """
         # for django >1.9 compatibilities
         if hasattr(user, "profile"):
@@ -202,40 +216,50 @@ class TequilaBackend(RemoteUserBackend):
         for model_field, tequila_field in mapping:
             try:
                 if user_attributes.get(tequila_field):
-                    setattr(attributes_model, model_field, user_attributes.get(tequila_field))
+                    setattr(
+                        attributes_model,
+                        model_field,
+                        user_attributes.get(tequila_field),
+                    )
             except (AttributeError, OperationalError):
                 logger.warning(
-                    'Unable to save the Tequila attribute {} in user.{}'
-                    ' Does the User model can handle it ?'.format(tequila_field, model_field))
+                    "Unable to save the Tequila attribute {} in user.{}"
+                    " Does the User model can handle it ?".format(
+                        tequila_field, model_field
+                    )
+                )
 
         # for django >1.9 compatibilities
         if hasattr(user, "profile"):
             user.profile.save()
 
     def update_attributes_from_tequila(self, user, user_attributes):
-        """ Fill the user profile with tequila attributes """
+        """Fill the user profile with tequila attributes"""
         mapping = (
-            ('sciper', 'uniqueid'),
-            ('username', 'username'),
-            ('where', 'where'),
-            ('units', 'allunits'),
-            ('group', 'group'),
-            ('classe', 'classe'),
-            ('statut', 'statut'),
-            ('memberof', 'memberof'),
+            ("sciper", "uniqueid"),
+            ("username", "username"),
+            ("where", "where"),
+            ("units", "allunits"),
+            ("group", "group"),
+            ("classe", "classe"),
+            ("statut", "statut"),
+            ("memberof", "memberof"),
+            ("cf", "cf"),
+            ("groupid", "groupid"),
         )
 
         self._try_to_set_user_attributes(user, mapping, user_attributes)
 
         # check for create or update field part
-        if user_attributes['firstname']:
-            first_name_attribute = user_attributes['firstname']
+        if user_attributes["firstname"]:
+            first_name_attribute = user_attributes["firstname"]
             # try a manual truncate if necessary,
             # else allow the truncate warning to be raised
-            if len(first_name_attribute) > \
-                    user._meta.get_field('last_name').max_length \
-                    and first_name_attribute.find(',') != -1:
-                first_name_formatted = first_name_attribute.split(',')[0]
+            if (
+                len(first_name_attribute) > user._meta.get_field("last_name").max_length
+                and first_name_attribute.find(",") != -1
+            ):
+                first_name_formatted = first_name_attribute.split(",")[0]
             else:
                 first_name_formatted = first_name_attribute
 
@@ -245,20 +269,28 @@ class TequilaBackend(RemoteUserBackend):
                     user.first_name = first_name_formatted
             else:
                 user.first_name = first_name_formatted
-        if user_attributes['name']:
+        if user_attributes["name"]:
             if user.last_name:
-                if user.last_name != user_attributes['name']:
-                    user.last_name = user_attributes['name']
+                if user.last_name != user_attributes["name"]:
+                    user.last_name = user_attributes["name"]
             else:
-                user.last_name = user_attributes['name']
+                user.last_name = user_attributes["name"]
 
-        if user_attributes['email']:
+        if user_attributes["email"]:
             if user.email:
-                if user.email != user_attributes['email']:
-                    user.email = user_attributes['email']
+                if user.email != user_attributes["email"]:
+                    user.email = user_attributes["email"]
             else:
-                user.email = user_attributes['email']
+                user.email = user_attributes["email"]
 
+        if user_attributes["cf"]:
+            user.cf = user_attributes["cf"]
+
+        if user_attributes["groupid"]:
+            user.groupid = user_attributes["groupid"]
+
+        if user_attributes["uniqueid"]:
+            user.sciper = user_attributes["uniqueid"]
         user.save()
 
     def configure_user(self, user):

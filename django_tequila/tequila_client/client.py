@@ -1,5 +1,5 @@
 """
-    (c) All rights reserved. ECOLE POLYTECHNIQUE FEDERALE DE LAUSANNE, Switzerland, VPSI, 2022
+(c) All rights reserved. ECOLE POLYTECHNIQUE FEDERALE DE LAUSANNE, Switzerland, VPSI, 2022
 """
 
 import json
@@ -9,7 +9,7 @@ import urllib
 
 from django.utils.encoding import smart_str
 
-logger = logging.getLogger('django_tequila.client')
+logger = logging.getLogger("django_tequila.client")
 
 
 try:
@@ -42,7 +42,7 @@ class TequilaClient(object):
         self.request_key = None
 
     def _open_url(self, url, data=None, additional_values=""):
-        """ hide urllib2 access, return header and response """
+        """hide urllib2 access, return header and response"""
         url_values = None
 
         if data:
@@ -61,7 +61,7 @@ class TequilaClient(object):
         return response.read()
 
     def _get_key(self):
-        """ hide urllib2 access """
+        """hide urllib2 access"""
         logger.debug("Asking for a key...")
 
         if self.request_key:
@@ -71,22 +71,25 @@ class TequilaClient(object):
         logger.debug("No key found, fetching a new one...")
 
         if self.config.request:
-            list_request = '+'.join(self.config.request)
+            list_request = "+".join(self.config.request)
         else:
             raise ValueError("username attribute is mandatory in request")
 
-        params = {'urlacces': smart_str(self.config.redirect_to),
-                  'service': self.config.service,
-                  'allows': self.config.allows,
-                  'mode_auth_check': '1'  # since Tequila 2.1
-                  }
+        params = {
+            "urlacces": smart_str(self.config.redirect_to),
+            "service": self.config.service,
+            "allows": self.config.allows,
+            "mode_auth_check": "1",  # since Tequila 2.1
+        }
 
         if self.config.additional_params:
             params.update(self.config.additional_params)
 
         self.request_key = self._open_url(
-            self.config.server_url + "/cgi-bin/tequila/createrequest", params,
-            "&request=" + list_request)[4:-1]
+            self.config.server_url + "/cgi-bin/tequila/createrequest",
+            params,
+            "&request=" + list_request,
+        )[4:-1]
 
         logger.debug("Key generated : %s " % self.request_key)
 
@@ -95,56 +98,59 @@ class TequilaClient(object):
     key = property(_get_key)
 
     def login_url(self):
-
         if sys.version_info < (3,):
             key = self.key
         else:
-            key = self.key.decode('UTF-8')
+            key = self.key.decode("UTF-8")
         return self.config.server_url + "/cgi-bin/tequila/auth?requestkey=" + key
 
     def get_attributes(self, key=None, allowedrequesthosts=None, auth_check=None):
-        """ return a dictionnary of attributes setted by tequila,
-            corresponding with the "request" parameter in config
-         """
+        """return a dictionnary of attributes setted by tequila,
+        corresponding with the "request" parameter in config
+        """
         logger.debug("Asking for attributes...")
 
         if key:
-            params = {'key': key}
+            params = {"key": key}
         elif self.request_key:
-            params = {'key': self._get_key()}
+            params = {"key": self._get_key()}
         else:
             raise ValueError("The token key value is missing")
 
         if auth_check:
-            params['auth_check'] = auth_check
+            params["auth_check"] = auth_check
         else:
-            logger.warning("The auth_check value is missing when requesting attributes from Tequila. As Tequila 2.1, it will be mandatory.")
+            logger.warning(
+                "The auth_check value is missing when requesting attributes from Tequila. As Tequila 2.1, it will be mandatory."
+            )
 
         if allowedrequesthosts:
-            params['allowedrequesthosts'] = allowedrequesthosts
+            params["allowedrequesthosts"] = allowedrequesthosts
 
         response = self._open_url(
-            self.config.server_url + "/cgi-bin/tequila/fetchattributes",
-            params)
+            self.config.server_url + "/cgi-bin/tequila/fetchattributes", params
+        )
 
         attributes = {}
 
         # force utf-8 as django need it
-        response = response.decode('utf-8')
+        response = response.decode("utf-8")
 
-        list_attributes = response.split('\n')
+        list_attributes = response.split("\n")
 
         logger.debug(
-            "Attributes returned by %s : \n%s" % (self.config.server_url,
-                                                  json.dumps(list_attributes,
-                                                             sort_keys=True,
-                                                             indent=4)))
+            "Attributes returned by %s : \n%s"
+            % (
+                self.config.server_url,
+                json.dumps(list_attributes, sort_keys=True, indent=4),
+            )
+        )
 
         for attribute in list_attributes[:-1]:
-            splitted_attr = attribute.split('=')
+            splitted_attr = attribute.split("=")
 
             if len(splitted_attr) == 1:
-                splitted_attr.append('')
+                splitted_attr.append("")
 
             attributes[splitted_attr[0]] = splitted_attr[1]
 
@@ -152,14 +158,14 @@ class TequilaClient(object):
             raise ValueError("Some Attributes returned by Tequila are missing")
 
         logger.debug(
-            "Attributes after formatting and returned: \n%s" % json.dumps(
-                attributes,
-                sort_keys=True, indent=4))
+            "Attributes after formatting and returned: \n%s"
+            % json.dumps(attributes, sort_keys=True, indent=4)
+        )
 
         return attributes
 
     def _verify_attributes(self, attributes):
-        needed_attrs = ['org', 'user', 'host', 'key']
+        needed_attrs = ["org", "user", "host", "key", "groupid", "cf"]
 
         for needed_attribute in needed_attrs:
             try:
